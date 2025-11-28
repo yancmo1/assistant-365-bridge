@@ -9,6 +9,18 @@ const port = process.env.PORT || 3000;
 // Parse JSON bodies
 app.use(express.json());
 
+// Root endpoint - info about available endpoints
+app.get("/", (req, res) => {
+  res.json({
+    service: "assistant-365-bridge",
+    version: "0.1.0",
+    endpoints: {
+      "GET /health": "Server health check",
+      "POST /promoteTask": "Promote task to Microsoft 365 (Phase 1: stubbed)"
+    }
+  });
+});
+
 // Simple health check
 app.get("/health", (req, res) => {
   res.json({
@@ -22,8 +34,21 @@ app.get("/health", (req, res) => {
 app.post("/promoteTask", (req, res) => {
   const payload = req.body || {};
 
-  console.log("Received /promoteTask payload:");
+  // Enhanced logging for Phase 1
+  console.log("\n" + "=".repeat(60));
+  console.log("📥 INCOMING TASK PROMOTION REQUEST");
+  console.log("=".repeat(60));
+  console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+  console.log(`📋 Title: ${payload.title || "(no title)"}`);
+  console.log(`📝 Notes: ${payload.notes || "(none)"}`);
+  console.log(`⚡ Importance: ${payload.importance || "normal"}`);
+  console.log(`📅 Due Date: ${payload.dueDate || "(none)"}`);
+  console.log(`🔖 Source: ${payload.source || "(unknown)"}`);
+  console.log(`🆔 External ID: ${payload.externalId || "(none)"}`);
+  console.log("─".repeat(60));
+  console.log("Raw JSON:");
   console.log(JSON.stringify(payload, null, 2));
+  console.log("=".repeat(60) + "\n");
 
   res.json({
     status: "stubbed",

@@ -1,0 +1,31 @@
+# systemd service file for assistant-365-bridge
+# Installation (on Ubuntu):
+#   sudo cp assistant-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable assistant-bridge
+#   sudo systemctl start assistant-bridge
+#
+# View logs: sudo journalctl -u assistant-bridge -f
+# Restart: sudo systemctl restart assistant-bridge
+
+[Unit]
+Description=Assistant 365 Bridge - AI to Microsoft To Do integration
+After=network.target
+
+[Service]
+Type=simple
+User=yancy
+WorkingDirectory=/home/yancy/assistant-365-bridge
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=assistant-bridge
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+# Cloudflare Tunnel Configuration
+# Save this as: /etc/cloudflared/config.yml (on Ubuntu server)
+
+tunnel: assistant-bridge
+credentials-file: /root/.cloudflared/<TUNNEL-ID>.json
+
+ingress:
+  # Map assistant.yancmo.xyz to local Node.js server
+  - hostname: assistant.yancmo.xyz
+    service: http://localhost:3000
+  
+  # Catch-all rule (required)
+  - service: http_status:404

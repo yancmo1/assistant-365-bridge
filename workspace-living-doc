@@ -1,0 +1,240 @@
+# Assistant 365 Bridge — Workspace Living Document
+
+This file serves as the **central coordination point** for all development activity, Copilot/AI agent instructions, task management, and system workflow for the **Assistant 365 Bridge** project.
+
+It merges:
+- Development steps
+- Backend setup
+- AI agent instructions
+- Symlinked resources
+- A living changes log
+- Clear TODOs for Copilot and ChatGPT to execute
+
+This doc is optimized for:
+- GitHub Copilot Agents
+- ChatGPT (with tool access when available)
+- VS Code workflows  
+- Ubuntu + Cloudflare Tunnel server hosting
+
+---
+
+# 📁 Project Summary
+
+A lightweight Node.js backend that exposes a secure HTTPS endpoint—via your Ubuntu server and Cloudflare Tunnel—that allows ChatGPT to **promote tasks into Microsoft 365 / Outlook / Microsoft To Do** with natural language commands like:
+
+> **“Promote task 3 to 365.”**
+
+This backend will:
+1. Accept JSON payloads (`/promoteTask`)
+2. Authenticate using Microsoft Graph
+3. Insert tasks into the “Tasks” list in Microsoft To Do
+4. Run 24/7 on your server
+
+**Current Phase:** Phase 1 (Stubbed endpoints, no Graph calls yet)
+
+See:  
+**AI agent instructions file:** `copilot-instructions.md`  
+ [oai_citation:0‡copilot-instructions.md](sediment://file_0000000054ac71f5b83335343b22e98b)
+
+---
+
+# 🧭 Symlinked Server Guide
+
+This project shares infrastructure with your existing local server guide.
+
+Create or maintain a symlink reference to:
+
+```
+/Users/yancyshepherd/Projects/apple-watch-steps/UBUNTUMAC-SERVER-GUIDE.md
+```
+
+Suggested symlink (run from project root):
+
+```bash
+ln -s /Users/yancyshepherd/Projects/apple-watch-steps/UBUNTUMAC-SERVER-GUIDE.md SERVER-GUIDE.md
+```
+
+This allows VS Code + Copilot to unify:
+- Tunnel configs
+- Node services
+- Systemd/PM2 instructions
+- Local dev workflows
+
+---
+
+# 🚀 Development Workflow (VS Code + Ubuntu)
+
+### 1. Clone repo on Ubuntu
+```bash
+git clone https://github.com/yancmo1/assistant-365-bridge.git
+cd assistant-365-bridge
+```
+
+### 2. Install Node + dependencies
+```bash
+npm install
+```
+
+### 3. Start server
+```bash
+npm start
+```
+
+### 4. Test locally
+```bash
+curl http://localhost:3000/health
+```
+
+### 5. Create Cloudflare Tunnel
+```bash
+cloudflared login
+cloudflared tunnel create assistant-bridge
+cloudflared tunnel route dns assistant-bridge assistant.yancmo.xyz
+```
+
+`/etc/cloudflared/config.yml`:
+```yaml
+tunnel: assistant-bridge
+credentials-file: /root/.cloudflared/<YOUR-ID>.json
+
+ingress:
+  - hostname: assistant.yancmo.xyz
+    service: http://localhost:3000
+  - service: http_status:404
+```
+
+Start tunnel:
+```bash
+cloudflared tunnel run assistant-bridge
+```
+
+### 6. Test via HTTPS:
+```
+https://assistant.yancmo.xyz/health
+```
+
+---
+
+# 🧬 AI Agent Expectations (Development Rules)
+
+*(From the uploaded **copilot-instructions.md**, summarized for workspace use.)*  
+ [oai_citation:1‡copilot-instructions.md](sediment://file_0000000054ac71f5b83335343b22e98b)
+
+Agents MUST follow these:
+
+### Code Style
+- ES Modules only (`import` / `export`)
+- Keep everything simple; avoid premature abstraction
+- Log payloads using `console.log()`
+- All responses MUST be JSON
+
+### API Contract (Phase 1)
+`POST /promoteTask` accepts:
+
+```json
+{
+  "title": "string",
+  "notes": "string",
+  "importance": "low|normal|high",
+  "dueDate": "YYYY-MM-DD",
+  "source": "chatgpt-task-inbox",
+  "externalId": "task-#"
+}
+```
+
+Returns stub:
+
+```json
+{
+  "status": "stubbed",
+  "message": "Task accepted but not yet sent to Microsoft 365.",
+  "echo": { }
+}
+```
+
+### Do NOT:
+- Add TypeScript
+- Add a database
+- Refactor beyond the single-file server yet
+- Add authentication middleware yet
+
+---
+
+# 🪜 Phase 1 — TODO List (For Copilot or ChatGPT Agents)
+
+### Core
+- [ ] Validate Node server functionality
+- [ ] Improve console formatting of `/promoteTask` payload
+- [ ] Suggest middleware improvements
+- [ ] Prepare folder for Phase 2: `src/services/graphClient.js`
+
+### Cloudflare Tunnel
+- [ ] Create tunnel YAML using SERVER-GUIDE.md symlinked instructions
+- [ ] Add tunnel run script (`npm run tunnel` optional)
+
+### Systemd/PM2
+- [ ] Auto-start `assistant-365-bridge`
+- [ ] Write to `SERVER-GUIDE.md` how to check logs
+
+---
+
+# 🔐 Phase 2 — TODO List (Graph Integration)
+
+### Azure / Entra ID
+- [ ] Register app: `Assistant365Bridge`
+- [ ] Add delegated permissions:
+  - Tasks.ReadWrite
+  - offline_access
+  - User.Read
+
+### Tokens
+- [ ] Implement Device Code Flow (recommended)
+- [ ] Save refresh token securely at:
+  ```
+  /etc/assistant-bridge/tokens.json
+  ```
+
+### Graph Client Implementation
+- [ ] Implement `graphClient.js`
+- [ ] Fetch list ID for “Tasks”
+- [ ] Implement `createMicrosoftTask()` method
+
+### Update `/promoteTask`
+- [ ] Replace stub with call to Graph Client
+
+---
+
+# 🧾 Living Changes Log
+
+This log must be updated **automatically** by VS Code + Copilot agents whenever files are changed or milestones are completed.
+
+### 2025-11-26 — Repo Initialization
+- README.md created
+- package.json + src/server.js added
+- Cloudflare + Graph plan structured
+
+### 2025-11-27 — Workspace Doc Created
+- Added symlink reference
+- Merged development instructions
+- Created unified workflow doc
+- Set up Phase 1 & Phase 2 tasks
+
+*(Agents: continue updating this log with each commit.)*
+
+---
+
+# 🧠 Next Developer Action
+
+You may now tell VS Code:
+
+> **“Begin Phase 1 setup on Ubuntu.”**
+
+or ask me:
+
+> **“Generate the Graph Client scaffolding.”**
+
+or
+
+> **“Create the systemd service file.”**
+
+Full development can proceed.
