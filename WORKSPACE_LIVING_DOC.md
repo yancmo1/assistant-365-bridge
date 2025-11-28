@@ -11,20 +11,26 @@ The service accepts task data → normalizes it → (eventually) calls Microsoft
 
 **Current Phase:**  
 ✔️ Phase 1 (Local + Ubuntu stub deployment) complete  
-✔️ Phase 2 (Microsoft Graph integration) **COMPLETE AND LIVE**  
-⬆️ Next: Production hardening and monitoring
+✔️ Phase 2 (Microsoft Graph integration) complete  
+✔️ Phase 3 (Hardening & Safety) complete  
+✔️ Phase 4 (Assistant-Level Features) **COMPLETE AND LIVE**  
+⬆️ Next: ChatGPT Actions integration
 
 ---
 
 ## 2. Current Status
 
 ### 🟢 API Status
-- Express server running on Ubuntu with PM2
+- Express server running on Ubuntu with PM2 (**v0.3.0**)
 - Endpoints:
-  - `GET /` — service info
-  - `GET /health` — health check (working)
-  - `POST /promoteTask` — **Creates real Microsoft To Do tasks**
+  - `GET /` — service info (public)
+  - `GET /health` — health check with uptime & Graph status (public)
+  - `GET /status` — Graph connectivity test (🔒 requires API key)
+  - `POST /promoteTask` — creates Microsoft To Do tasks (🔒 requires API key)
+  - `GET /tasks` — list tasks with filters (🔒 requires API key)
+  - `POST /completeTask` — mark task completed (🔒 requires API key)
 - **LIVE at:** https://assistant.yancmo.xyz
+- **API Key Header:** `X-Assistant-Key`
 
 ### 🟢 Ubuntu Deployment Status
 - Code deployed to: `/opt/apps/assistant-365-bridge`
@@ -55,8 +61,22 @@ The service accepts task data → normalizes it → (eventually) calls Microsoft
 - ✅ Permissions configured: `Tasks.ReadWrite`, `User.Read`, `offline_access`
 - ✅ Authentication: Device Code Flow (delegated)
 - ✅ Refresh token stored securely in `/opt/apps/assistant-365-bridge/data/tokens.json`
-- ✅ **Creating real tasks in Microsoft To Do → Tasks list**
+- ✅ **Category routing:** `work` → Work list, `personal` → Tasks list
+- ✅ **Creating real tasks in Microsoft To Do**
 - ✅ Signed in as: `yshepherd@gamingcapitalgroup.com`
+
+### 🟢 Phase 3 Security — IMPLEMENTED
+- ✅ API key middleware for protected endpoints
+- ✅ Input validation with structured error responses
+- ✅ Structured logging utility (`src/utils/logger.js`)
+- ✅ Enhanced `/health` with uptime and Graph status
+- ✅ `/status` endpoint for Graph connectivity testing
+
+### 🟢 Phase 4 Features — IMPLEMENTED
+- ✅ Category support (`work` / `personal`)
+- ✅ `GET /tasks` with filtering (category, top, includeCompleted)
+- ✅ `POST /completeTask` to mark tasks done
+- ✅ Improved `/promoteTask` response with category info
 
 ---
 
@@ -136,18 +156,32 @@ ssh yancmo@100.105.31.42 "cd /opt/apps/assistant-365-bridge && curl http://local
 ## 5. Production API Usage
 
 ### Public Endpoint
-**Base URL:** `https://assistant.yancmo.xyz`
+**Base URL:** `https://assistant.yancmo.xyz`  
+**API Key Header:** `X-Assistant-Key: <your-api-key>`
+
+### Endpoints Summary
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /` | Public | Service info |
+| `GET /health` | Public | Health + uptime + graphStatus |
+| `GET /status` | 🔒 API Key | Graph connectivity test |
+| `POST /promoteTask` | 🔒 API Key | Create task (supports category) |
+| `GET /tasks` | 🔒 API Key | List tasks with filters |
+| `POST /completeTask` | 🔒 API Key | Mark task completed |
 
 ### Create Task in Microsoft To Do
 
 ```bash
 curl -X POST https://assistant.yancmo.xyz/promoteTask \
   -H "Content-Type: application/json" \
+  -H "X-Assistant-Key: YOUR_API_KEY" \
   -d '{
     "title": "Task from AI Assistant",
     "notes": "Task details and context",
     "importance": "high",
     "dueDate": "2025-12-10",
+    "category": "work",
     "source": "chatgpt-task-inbox",
     "externalId": "task-123"
   }'
@@ -159,14 +193,31 @@ curl -X POST https://assistant.yancmo.xyz/promoteTask \
 {
   "status": "created",
   "microsoftTaskId": "AAMkAGQ3N2FkNmQxLTE5ZDAtNDlmYS1hMzhmLThhZTlhMWVkN2JmNQBG...",
-  "listDisplayName": "Tasks",
+  "listDisplayName": "Work",
+  "category": "work",
   "title": "Task from AI Assistant",
   "importance": "high",
   "createdDateTime": "2025-11-28T13:58:27.4540135Z"
 }
 ```
 
-Tasks appear immediately in **Microsoft To Do → Tasks list**.
+### List Tasks
+
+```bash
+curl -X GET "https://assistant.yancmo.xyz/tasks?category=work&top=10" \
+  -H "X-Assistant-Key: YOUR_API_KEY"
+```
+
+### Complete a Task
+
+```bash
+curl -X POST https://assistant.yancmo.xyz/completeTask \
+  -H "Content-Type: application/json" \
+  -H "X-Assistant-Key: YOUR_API_KEY" \
+  -d '{"taskId": "MICROSOFT_TASK_ID", "category": "work"}'
+```
+
+Tasks appear immediately in **Microsoft To Do** (Work or Tasks list based on category).
 
 ---
 
@@ -248,10 +299,12 @@ cloudflared tunnel run assistant-bridge
 7. ✅ Secure token storage: `./data/tokens.json` (0600 permissions)
 
 ### Files
-- `/src/services/graphClient.js` — Microsoft Graph client
+- `/src/server.js` — Express server with all endpoints and middleware
+- `/src/services/graphClient.js` — Microsoft Graph client with category routing
+- `/src/utils/logger.js` — Structured logging utility
 - `/src/auth-setup.js` — One-time authentication setup
 - `/data/tokens.json` — Refresh token (not in Git)
-- `ecosystem.config.cjs` — PM2 config with Azure env vars
+- `ecosystem.config.cjs` — PM2 config with Azure env vars and API_SECRET
 - `AZURE-SETUP.md` — Complete setup guide (in .gitignore)
 
 ### Re-authentication (if needed)
@@ -300,10 +353,29 @@ ssh yancmo@100.105.31.42 "cd /opt/apps/assistant-365-bridge && <command>"
 | Tail logs | `ssh ... "pm2 logs assistant-bridge --lines 50"` |
 | Re-authenticate | `ssh ... "node src/auth-setup.js"` |
 | Test public API | `curl https://assistant.yancmo.xyz/health` |
+| Test protected API | `curl -H "X-Assistant-Key: KEY" https://assistant.yancmo.xyz/status` |
 
 ---
 
 ## 9. Change Log
+
+### **2025-11-28** (Phase 3 & 4 Complete - Evening)
+- 🎉 **Phase 3 Hardening & Safety: COMPLETE**
+  - ✅ API key middleware (`X-Assistant-Key` header)
+  - ✅ Enhanced `/health` with uptime and Graph connectivity status
+  - ✅ New `/status` endpoint for Graph connectivity testing
+  - ✅ Input validation with structured error messages
+  - ✅ Structured logging utility (`src/utils/logger.js`)
+- 🎉 **Phase 4 Assistant-Level Features: COMPLETE**
+  - ✅ Category support: `work` → Work list, `personal` → Tasks list
+  - ✅ `GET /tasks` — list tasks with filtering (category, top, includeCompleted)
+  - ✅ `POST /completeTask` — mark tasks as completed
+  - ✅ Improved `/promoteTask` response with category info
+  - ✅ Work list auto-created on first work task
+- ✅ All endpoints smoke tested via production HTTPS
+- ✅ Version bumped to 0.3.0
+- ✅ Pushed to GitHub (excluding AZURE-SETUP.md with secrets)
+- **API Key configured in ecosystem.config.cjs on server**
 
 ### **2025-11-28** (Phase 2 Complete - Evening)
 - 🎉 **Phase 2 Microsoft Graph Integration: COMPLETE AND LIVE**
