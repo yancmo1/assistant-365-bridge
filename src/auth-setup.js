@@ -74,13 +74,40 @@ async function authenticate() {
     console.log('\n✅ Authentication successful!');
     console.log(`   Signed in as: ${response.account?.username || 'Unknown'}\n`);
     
+    // Get the token cache to extract refresh token
+    const cache = pca.getTokenCache();
+    const accounts = await cache.getAllAccounts();
+    
+    if (accounts.length === 0) {
+      throw new Error('No accounts found in token cache');
+    }
+    
+    // Get refresh token from cache
+    const account = accounts[0];
+    const cacheData = cache.serialize();
+    const cacheObj = JSON.parse(cacheData);
+    
+    // Extract refresh token from cache
+    let refreshToken = null;
+    if (cacheObj.RefreshToken) {
+      const refreshTokenKeys = Object.keys(cacheObj.RefreshToken);
+      if (refreshTokenKeys.length > 0) {
+        refreshToken = cacheObj.RefreshToken[refreshTokenKeys[0]].secret;
+      }
+    }
+    
+    if (!refreshToken) {
+      throw new Error('Could not extract refresh token from cache');
+    }
+    
     // Save the refresh token
     const dir = path.dirname(TOKEN_FILE_PATH);
     await fs.mkdir(dir, { recursive: true });
     
     const tokenData = {
-      refreshToken: response.refreshToken,
-      account: response.account?.username,
+      refreshToken: refreshToken,
+      account: account.username,
+      homeAccountId: account.homeAccountId,
       lastUpdated: new Date().toISOString()
     };
     
