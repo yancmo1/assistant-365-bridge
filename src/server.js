@@ -1,5 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
+import { createMicrosoftTask, isAuthenticated } from "./services/graphClient.js";
 
 dotenv.config();
 
@@ -31,7 +32,7 @@ app.get("/health", (req, res) => {
 });
 
 // Stub promoteTask endpoint
-app.post("/promoteTask", (req, res) => {
+app.post("/promoteTask", async (req, res) => {
   const payload = req.body || {};
 
   // Enhanced logging for Phase 1
@@ -50,11 +51,52 @@ app.post("/promoteTask", (req, res) => {
   console.log(JSON.stringify(payload, null, 2));
   console.log("=".repeat(60) + "\n");
 
-  res.json({
-    status: "stubbed",
-    message: "Task accepted but not yet sent to Microsoft 365.",
-    echo: payload
-  });
+  // Phase 2: Check if Microsoft Graph is configured
+  const authenticated = await isAuthenticated();
+  
+  if (authenticated) {
+    try {
+      // Create task in Microsoft To Do
+      const microsoftTask = await createMicrosoftTask({
+        title: payload.title,
+        notes: payload.notes,
+        importance: payload.importance,
+        dueDate: payload.dueDate
+      });
+
+      console.log("✅ Task created in Microsoft 365\n");
+
+      res.json({
+        status: "created",
+        microsoftTaskId: microsoftTask.id,
+        listDisplayName: "Tasks",
+        title: microsoftTask.title,
+        importance: microsoftTask.importance,
+        createdDateTime: microsoftTask.createdDateTime
+      });
+    } catch (error) {
+      console.error("❌ Failed to create task in Microsoft 365:", error.message);
+      
+      res.status(500).json({
+        status: "error",
+        message: "Failed to create task in Microsoft 365",
+        error: error.message,
+        hint: error.message.includes('refresh token') 
+          ? "Run: node src/auth-setup.js on the server to re-authenticate"
+          : "Check server logs for details"
+      });
+    }
+  } else {
+    // Phase 1: Stubbed response (no authentication configured yet)
+    console.log("⚠️  Microsoft Graph not configured - returning stubbed response\n");
+    
+    res.json({
+      status: "stubbed",
+      message: "Task accepted but not yet sent to Microsoft 365.",
+      hint: "To enable real task creation, run: node src/auth-setup.js",
+      echo: payload
+    });
+  }
 });
 
 // Start the server

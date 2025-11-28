@@ -1,1 +1,1 @@
-/Users/yancyshepherd/Projects/apple-watch-steps/UBUNTUMAC-SERVER-GUIDE.md
+/Users/yancyshepherd/Projects/bingebox/UBUNTUMAC-SERVER-GUIDE.md
