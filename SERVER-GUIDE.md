@@ -1,1 +1,1 @@
-/Users/yancyshepherd/Projects/bingebox/UBUNTUMAC-SERVER-GUIDE.md
+../ubuntumac-server /SERVER_MASTER_GUIDE.md
