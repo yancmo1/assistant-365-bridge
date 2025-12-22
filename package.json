@@ -1,6 +1,6 @@
 {
   "name": "assistant-365-bridge",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Backend bridge to promote tasks from an AI assistant into Microsoft 365 To Do / Outlook Tasks.",
   "main": "src/server.js",
   "type": "module",

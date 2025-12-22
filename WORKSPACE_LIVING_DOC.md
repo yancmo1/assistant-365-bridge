@@ -14,6 +14,7 @@ The service accepts task data → normalizes it → (eventually) calls Microsoft
 ✔️ Phase 2 (Microsoft Graph integration) complete  
 ✔️ Phase 3 (Hardening & Safety) complete  
 ✔️ Phase 4 (Assistant-Level Features) **COMPLETE AND LIVE**  
+🧩 Phase 5 (Personal Task Sync → Apple Calendar): in progress (webhook + relay scaffolding)
 ⬆️ Next: ChatGPT Actions integration
 
 ---
@@ -60,7 +61,8 @@ The service accepts task data → normalizes it → (eventually) calls Microsoft
 - ✅ Tenant ID: `423b97b0-60e3-4a54-8b10-793db504ecb3`
 - ✅ Permissions configured: `Tasks.ReadWrite`, `User.Read`, `offline_access`
 - ✅ Authentication: Device Code Flow (delegated)
-- ✅ Refresh token stored securely in `/opt/apps/assistant-365-bridge/data/tokens.json`
+- ✅ Persistent MSAL token cache stored securely (0600), default:
+  - `/opt/apps/assistant-365-bridge/data/msal-cache.json`
 - ✅ **Category routing:** `work` → Work list, `personal` → Tasks list
 - ✅ **Creating real tasks in Microsoft To Do**
 - ✅ Signed in as: `yshepherd@gamingcapitalgroup.com`
@@ -77,6 +79,12 @@ The service accepts task data → normalizes it → (eventually) calls Microsoft
 - ✅ `GET /tasks` with filtering (category, top, includeCompleted)
 - ✅ `POST /completeTask` to mark tasks done
 - ✅ Improved `/promoteTask` response with category info
+
+### 🟡 Personal Task Sync Bridge — IN PROGRESS
+- ✅ Added inbound webhook endpoint for Power Automate: `POST /webhooks/powerAutomate/todo`
+- ✅ File-backed idempotency to prevent duplicate Apple event creation
+- ✅ Relay to Apple automation runner via `APPLE_EVENT_WEBHOOK_URL` (optional; if unset, webhook is accepted but not forwarded)
+- 📄 Implementation notes: `PRDs/PERSONAL_TASK_SYNC_BRIDGE.md`
 
 ---
 
@@ -296,14 +304,14 @@ cloudflared tunnel run assistant-bridge
    - Task creation with all fields
 5. ✅ `/promoteTask` endpoint wired to real Graph API
 6. ✅ Authentication script: `src/auth-setup.js`
-7. ✅ Secure token storage: `./data/tokens.json` (0600 permissions)
+7. ✅ Secure token storage: `./data/msal-cache.json` (0600 permissions)
 
 ### Files
 - `/src/server.js` — Express server with all endpoints and middleware
 - `/src/services/graphClient.js` — Microsoft Graph client with category routing
 - `/src/utils/logger.js` — Structured logging utility
 - `/src/auth-setup.js` — One-time authentication setup
-- `/data/tokens.json` — Refresh token (not in Git)
+- `/data/msal-cache.json` — MSAL token cache (not in Git)
 - `ecosystem.config.cjs` — PM2 config with Azure env vars and API_SECRET
 - `AZURE-SETUP.md` — Complete setup guide (in .gitignore)
 
@@ -358,6 +366,22 @@ ssh yancmo@100.105.31.42 "cd /opt/apps/assistant-365-bridge && <command>"
 ---
 
 ## 9. Change Log
+
+### 2025-12-14
+- Added Personal Task Sync scaffolding (Microsoft To Do → Apple Calendar)
+  - New endpoints: `GET /webhooks/powerAutomate/todo/sample`, `POST /webhooks/powerAutomate/todo`
+  - File-backed dedupe store: `./data/task-sync/processed.json`
+  - Optional outbound relay config: `APPLE_EVENT_WEBHOOK_URL` (+ optional auth/secret)
+- Version bumped to 0.4.0
+
+### 2025-12-22
+- Implemented persistent OAuth via MSAL disk cache (`MSAL_CACHE_PATH`, default `./data/msal-cache.json`)
+- Graph task actions (create/list/complete) now attempt silent token acquisition before falling back to device-code login
+- `src/auth-setup.js` updated to seed the persistent MSAL cache (no more manual refresh-token extraction)
+
+### 2025-12-22 (AI model config)
+- Centralized future OpenAI/ChatGPT model selection in `src/config/aiModel.js` (default: `gpt-5.2`)
+- Server now logs the active model at startup and exposes it via `GET /` and `GET /health`
 
 ### **2025-11-28** (Phase 3 & 4 Complete - Evening)
 - 🎉 **Phase 3 Hardening & Safety: COMPLETE**

@@ -5,32 +5,13 @@
  * Uses MSAL for authentication with refresh token persistence
  */
 
-import * as msal from '@azure/msal-node';
-import { promises as fs } from 'fs';
-import path from 'path';
 import dotenv from 'dotenv';
+import { getAccessToken as getPersistentAccessToken, isAuthenticated as isPersistentlyAuthenticated } from './persistentAuth.js';
 
 dotenv.config();
 
 // Configuration
-const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
-const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
-const AZURE_AUTHORITY = process.env.AZURE_AUTHORITY || 'https://login.microsoftonline.com/';
-const TOKEN_FILE_PATH = process.env.TOKEN_FILE_PATH || './data/tokens.json';
 const GRAPH_API_ENDPOINT = process.env.GRAPH_API_ENDPOINT || 'https://graph.microsoft.com/v1.0';
-
-// MSAL Configuration
-const msalConfig = {
-  auth: {
-    clientId: AZURE_CLIENT_ID,
-    authority: `${AZURE_AUTHORITY}${AZURE_TENANT_ID}`,
-  }
-};
-
-const pca = new msal.PublicClientApplication(msalConfig);
-
-// Token cache (in-memory)
-let cachedTokenResponse = null;
 let listIdCache = {}; // Cache list IDs by category
 
 // Category to list name mapping
@@ -40,88 +21,14 @@ const CATEGORY_LIST_MAP = {
 };
 
 /**
- * Load refresh token from file
- * @returns {Promise<string|null>} Refresh token or null if not found
- */
-async function loadRefreshToken() {
-  try {
-    const tokenData = await fs.readFile(TOKEN_FILE_PATH, 'utf8');
-    const tokens = JSON.parse(tokenData);
-    return tokens.refreshToken || null;
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error('Error loading refresh token:', error.message);
-    }
-    return null;
-  }
-}
-
-/**
- * Save refresh token to file
- * @param {string} refreshToken 
- */
-async function saveRefreshToken(refreshToken) {
-  try {
-    const dir = path.dirname(TOKEN_FILE_PATH);
-    await fs.mkdir(dir, { recursive: true });
-    
-    const tokenData = {
-      refreshToken,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(tokenData, null, 2), { mode: 0o600 });
-    console.log('✅ Refresh token saved');
-  } catch (error) {
-    console.error('❌ Error saving refresh token:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Get or refresh access token for Microsoft Graph
- * @returns {Promise<string>} Access token
+ * Get an access token for Microsoft Graph.
+ *
+ * Uses the persistent MSAL disk cache:
+ * - tries silent auth first
+ * - falls back to device-code interactive auth when required
  */
 async function getAccessToken() {
-  // Check if we have a valid cached token
-  if (cachedTokenResponse && cachedTokenResponse.expiresOn > new Date()) {
-    return cachedTokenResponse.accessToken;
-  }
-
-  // Try to use refresh token
-  const refreshToken = await loadRefreshToken();
-  
-  if (!refreshToken) {
-    throw new Error(
-      'No refresh token found. Please run the initial authentication setup first. ' +
-      'Run: node src/auth-setup.js'
-    );
-  }
-
-  try {
-    const refreshTokenRequest = {
-      refreshToken: refreshToken,
-      scopes: ['Tasks.ReadWrite', 'User.Read', 'offline_access'],
-    };
-
-    const response = await pca.acquireTokenByRefreshToken(refreshTokenRequest);
-    
-    // Cache the new token
-    cachedTokenResponse = response;
-    
-    // Save new refresh token if it was rotated
-    if (response.refreshToken && response.refreshToken !== refreshToken) {
-      await saveRefreshToken(response.refreshToken);
-    }
-    
-    return response.accessToken;
-  } catch (error) {
-    console.error('❌ Error refreshing token:', error.message);
-    throw new Error(
-      'Failed to refresh access token. You may need to re-authenticate. ' +
-      'Run: node src/auth-setup.js'
-    );
-  }
+  return await getPersistentAccessToken();
 }
 
 /**
@@ -437,8 +344,7 @@ export async function completeTask(options) {
  * @returns {Promise<boolean>}
  */
 export async function isAuthenticated() {
-  const refreshToken = await loadRefreshToken();
-  return refreshToken !== null;
+  return await isPersistentlyAuthenticated();
 }
 
 /**

@@ -49,6 +49,46 @@ Components:
 
 ---
 
+## Personal Task Sync Bridge (Microsoft To Do → Apple Calendar)
+
+This repo also includes an optional “task → calendar event” bridge designed to make **Personal** tasks show up reliably in Apple Calendar on macOS + iOS.
+
+### How it works (recommended)
+
+1. **Power Automate** triggers when a new Microsoft To Do task is created/updated.
+2. The flow filters to **Category = Personal**.
+3. The flow sends an HTTP POST to this service:
+  - `POST /webhooks/powerAutomate/todo`
+4. The service normalizes the payload, adds a trace tag, de-dupes retries, and forwards the event payload to an Apple-side automation runner (e.g., Pushcut) via `APPLE_EVENT_WEBHOOK_URL`.
+
+### Endpoints
+
+- `GET /webhooks/powerAutomate/todo/sample` (🔒 requires `X-Assistant-Key`) — returns a sample payload
+- `POST /webhooks/powerAutomate/todo` (🔒 requires `X-Assistant-Key`) — inbound webhook from Power Automate
+
+### Notes
+
+- Apple Calendar events are identified by a trace tag added to notes:
+  - `[msTodoTaskId:<id>]`
+- If `APPLE_EVENT_WEBHOOK_URL` is not configured, the webhook endpoint will accept but will not forward (returns `202`).
+
+---
+
+## OpenAI / Chat Agent model configuration (future)
+
+This backend is primarily a Microsoft Graph bridge today. If/when you add OpenAI-powered chat/automation modules, the active model name is centralized in:
+
+- `src/config/aiModel.js`
+
+Configure via environment variable:
+
+- `OPENAI_MODEL` (preferred)
+- `MODEL_VERSION` (legacy alias)
+
+Default is `gpt-5.2` (updated **2025-12-22**).
+
+---
+
 ## Phase 1 Goals (MVP)
 
 1. **Run a web server on Ubuntu** (Node.js assumed for now)
@@ -70,7 +110,7 @@ No 365 integration yet in Phase 1. Just plumbing.
    - We want to act as *your user* to create **your** To Do tasks  
 2. Implement an **OAuth flow** (authorization code or device code) to get:
    - Access token
-   - Refresh token (stored securely on Ubuntu)
+  - Persistent MSAL token cache (stored securely on Ubuntu)
 3. Use the token to:
    - Find the list ID of the “Tasks” list
    - Create tasks via Graph:
@@ -251,7 +291,7 @@ We have two realistic options:
 - Backend receives an authorization code → exchanges it for tokens
 - Backend stores:
   - Access token (short-lived)
-  - Refresh token (long-lived) in a secure file or store on Ubuntu
+  - MSAL token cache (includes refresh tokens) in a secure file/store on Ubuntu
 
 **Pros:** Standard, works well, good for one user (you)  
 **Cons:** Slightly more setup (callback endpoint)
@@ -265,7 +305,7 @@ We have two realistic options:
 **Pros:** Easier to do as a one-time setup  
 **Cons:** Slightly less “web app” like, but perfectly fine for personal use
 
-Either way, once we have a refresh token, the backend can silently refresh tokens and call Microsoft Graph whenever `/promoteTask` is hit.
+Either way, once we have an MSAL cache (including refresh tokens), the backend can silently refresh tokens and call Microsoft Graph whenever `/promoteTask` is hit.
 
 ### 3. Implement Graph Helper
 
@@ -274,7 +314,8 @@ Pseudocode sketch (not final code):
 ```ts
 // src/services/graphClient.ts
 
-// TODO: implement real token management with MSAL and stored refresh token
+// Implemented: MSAL token management via persistent disk cache
+// See: src/services/persistentAuth.js
 
 export async function createTodoTask(input: {
   title: string;
@@ -282,7 +323,7 @@ export async function createTodoTask(input: {
   importance?: "low" | "normal" | "high";
   dueDate?: string; // ISO date
 }) {
-  const accessToken = await getAccessTokenForUser(); // via MSAL + refresh token
+  const accessToken = await getAccessTokenForUser(); // via MSAL + persistent disk cache
 
   // 1. Get list ID for "Tasks" list (once; cache in memory)
   const listId = await getTasksListId(accessToken);
