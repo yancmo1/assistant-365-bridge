@@ -82,8 +82,11 @@ PORT=3000
 AZURE_CLIENT_ID=your-client-id-here
 AZURE_TENANT_ID=your-tenant-id-here
 
-# Token Storage
-TOKEN_FILE_PATH=/opt/apps/assistant-365-bridge/data/tokens.json
+# Token Storage (Persistent MSAL cache)
+MSAL_CACHE_PATH=/opt/apps/assistant-365-bridge/data/msal-cache.json
+
+# Legacy (older versions): refresh token JSON used only for migration/back-compat
+# TOKEN_FILE_PATH=/opt/apps/assistant-365-bridge/data/tokens.json
 EOF
 "
 ```
@@ -98,7 +101,7 @@ EOF
 ssh yancmo@100.105.31.42 "mkdir -p /opt/apps/assistant-365-bridge/data && chmod 700 /opt/apps/assistant-365-bridge/data"
 ```
 
-This directory will store your refresh token securely (not in git).
+This directory will store your MSAL token cache securely (not in git).
 
 ---
 
@@ -114,14 +117,14 @@ This will:
 1. Show you a URL and a code
 2. You visit the URL on any device
 3. Enter the code and sign in with your Microsoft 365 account
-4. Token is saved to `data/tokens.json`
-5. Future requests auto-refresh the token
+4. Tokens are saved to the MSAL cache file (default: `data/msal-cache.json`)
+5. Future requests attempt silent token refresh via MSAL
 
 ---
 
 ## Security Notes
 
-- **Tokens are stored in:** `/opt/apps/assistant-365-bridge/data/tokens.json`
+- **Tokens are stored in:** `/opt/apps/assistant-365-bridge/data/msal-cache.json`
 - **This file is in `.gitignore`** - never committed to git
 - **File permissions:** Only readable by `yancmo` user (chmod 600)
 - **Refresh tokens expire after:** 90 days of inactivity (using the API keeps it active)

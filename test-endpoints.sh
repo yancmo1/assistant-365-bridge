@@ -6,6 +6,18 @@
 
 HOST="${1:-http://localhost:3000}"
 
+# Protected endpoints require X-Assistant-Key
+# Provide via env var: ASSISTANT_KEY
+ASSISTANT_KEY_VALUE="${ASSISTANT_KEY:-}"
+AUTH_HEADER=()
+if [ -n "$ASSISTANT_KEY_VALUE" ]; then
+  AUTH_HEADER=(-H "X-Assistant-Key: $ASSISTANT_KEY_VALUE")
+else
+  echo "⚠️  ASSISTANT_KEY not set; protected endpoint tests may fail."
+  echo "    Run like: ASSISTANT_KEY=... ./test-endpoints.sh $HOST"
+  echo ""
+fi
+
 echo "🧪 Testing Assistant 365 Bridge endpoints at: $HOST"
 echo ""
 
@@ -24,6 +36,7 @@ echo ""
 echo "📍 Test 3: Promote task (POST /promoteTask)"
 echo "---"
 curl -s -X POST "$HOST/promoteTask" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Test task from automated test",
@@ -33,6 +46,7 @@ curl -s -X POST "$HOST/promoteTask" \
     "source": "test-script",
     "externalId": "test-auto-1"
   }' | jq . || curl -s -X POST "$HOST/promoteTask" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Test task from automated test",
@@ -42,6 +56,14 @@ curl -s -X POST "$HOST/promoteTask" \
     "source": "test-script",
     "externalId": "test-auto-1"
   }'
+echo ""
+echo ""
+
+echo "📍 Test 4: Power Automate webhook sample (GET /webhooks/powerAutomate/todo/sample)"
+echo "---"
+curl -s "$HOST/webhooks/powerAutomate/todo/sample" \
+  "${AUTH_HEADER[@]}" | jq . || curl -s "$HOST/webhooks/powerAutomate/todo/sample" \
+  "${AUTH_HEADER[@]}"
 echo ""
 echo ""
 

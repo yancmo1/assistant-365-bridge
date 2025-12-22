@@ -10,9 +10,9 @@ npm start
 
 ### Test Endpoints
 ```bash
-./test-endpoints.sh
+ASSISTANT_KEY=... ./test-endpoints.sh
 # or
-./test-endpoints.sh https://assistant.yancmo.xyz
+ASSISTANT_KEY=... ./test-endpoints.sh https://assistant.yancmo.xyz
 ```
 
 ### Manual Testing
@@ -85,6 +85,8 @@ Server health check
 ### POST /promoteTask
 Promote task to Microsoft 365 (currently stubbed)
 
+> Note: This endpoint is protected. Add header `X-Assistant-Key: <API_SECRET>`.
+
 **Request:**
 ```json
 {
@@ -105,6 +107,27 @@ Promote task to Microsoft 365 (currently stubbed)
   "echo": { /* your request */ }
 }
 ```
+
+### Personal Task Sync (Power Automate → Apple Calendar)
+
+#### GET /webhooks/powerAutomate/todo/sample
+Returns a sample payload accepted by the webhook.
+
+#### POST /webhooks/powerAutomate/todo
+Inbound webhook (intended for Power Automate). Normalizes input, adds a trace tag in notes, de-dupes retries, and forwards to `APPLE_EVENT_WEBHOOK_URL`.
+
+Required header:
+
+- `X-Assistant-Key: <API_SECRET>`
+
+Key env vars:
+
+- `APPLE_EVENT_WEBHOOK_URL`
+- `APPLE_EVENT_WEBHOOK_AUTHORIZATION` (optional)
+- `APPLE_EVENT_WEBHOOK_SECRET` (optional)
+- `APPLE_CALENDAR_NAME` (default `Personal`)
+- `DEFAULT_EVENT_START_TIME` (default `08:00`)
+- `DEFAULT_EVENT_DURATION_MINUTES` (default `30`)
 
 ## Phase 2 TODO
 

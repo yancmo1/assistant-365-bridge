@@ -1,6 +1,15 @@
 import express from "express";
 import dotenv from "dotenv";
 import { createMicrosoftTask, isAuthenticated, testGraphConnection, listTasks, completeTask } from "./services/graphClient.js";
+import { createTaskSyncStore } from "./services/taskSyncStore.js";
+import {
+  normalizePersonalTodoTask,
+  isPersonalCategory,
+  buildAppleEventPayload,
+  buildIdempotencyKey,
+  relayToApple
+} from "./services/personalTaskSync.js";
+import { getOpenAiModelInfo } from "./config/aiModel.js";
 import logger from "./utils/logger.js";
 
 dotenv.config();
@@ -10,8 +19,21 @@ const port = process.env.PORT || 3000;
 const API_SECRET = process.env.API_SECRET;
 const startTime = Date.now();
 
+// Centralized AI model config (for future OpenAI/ChatGPT integrations)
+const aiModelInfo = getOpenAiModelInfo();
+
+// Personal Task Sync (MS To Do -> Apple Calendar)
+const taskSyncStore = createTaskSyncStore();
+
 // Parse JSON bodies
 app.use(express.json());
+
+// Helpful verification header for assistant clients and debugging.
+// This does not imply OpenAI is being called; it reflects the configured model name.
+app.use((req, res, next) => {
+  res.setHeader('X-AI-Model', aiModelInfo.model);
+  next();
+});
 
 // API Key Middleware - validates X-Assistant-Key header
 // Excludes / and /health for basic accessibility
@@ -58,14 +80,19 @@ app.use(apiKeyMiddleware);
 app.get("/", (req, res) => {
   res.json({
     service: "assistant-365-bridge",
-    version: "0.3.0",
+    version: "0.4.0",
+    ai: {
+      model: aiModelInfo.model
+    },
     endpoints: {
       "GET /": "Service info (public)",
       "GET /health": "Server health check (public)",
       "GET /status": "Graph connectivity status (requires X-Assistant-Key)",
       "POST /promoteTask": "Create task in Microsoft To Do (requires X-Assistant-Key)",
       "GET /tasks": "List tasks from To Do (requires X-Assistant-Key)",
-      "POST /completeTask": "Mark a task as completed (requires X-Assistant-Key)"
+      "POST /completeTask": "Mark a task as completed (requires X-Assistant-Key)",
+      "GET /webhooks/powerAutomate/todo/sample": "Sample payload for Power Automate (requires X-Assistant-Key)",
+      "POST /webhooks/powerAutomate/todo": "Inbound webhook from Power Automate (requires X-Assistant-Key)"
     },
     authentication: "Protected endpoints require X-Assistant-Key header",
     categories: ["work", "personal"]
@@ -80,9 +107,10 @@ app.get("/health", async (req, res) => {
   res.json({
     status: "ok",
     service: "assistant-365-bridge",
-    version: "0.3.0",
+    version: "0.4.0",
     uptimeSeconds,
-    graphStatus: authenticated ? "configured" : "not-configured"
+    graphStatus: authenticated ? "configured" : "not-configured",
+    aiModel: aiModelInfo.model
   });
 });
 
@@ -96,7 +124,7 @@ app.get("/status", async (req, res) => {
     res.json({
       status: "ok",
       service: "assistant-365-bridge",
-      version: "0.3.0",
+      version: "0.4.0",
       uptimeSeconds,
       graph: {
         status: "ok",
@@ -110,7 +138,7 @@ app.get("/status", async (req, res) => {
     res.status(503).json({
       status: "degraded",
       service: "assistant-365-bridge",
-      version: "0.3.0",
+      version: "0.4.0",
       uptimeSeconds,
       graph: {
         status: authenticated ? "error" : "authRequired",
@@ -182,6 +210,142 @@ function normalizeTaskPayload(payload) {
     externalId: payload.externalId || null
   };
 }
+
+// GET /webhooks/powerAutomate/todo/sample - helper for building flows
+app.get("/webhooks/powerAutomate/todo/sample", (req, res) => {
+  res.json({
+    description: "Sample payload accepted by POST /webhooks/powerAutomate/todo",
+    note: "This endpoint is protected by X-Assistant-Key.",
+    sample: {
+      id: "AAMk...",
+      title: "Print pictures of the boys – test sync.",
+      notes: "Optional notes",
+      categories: ["Personal"],
+      status: "notStarted",
+      lastModifiedDateTime: "2025-12-14T18:22:00Z",
+      dueDate: "2025-12-15"
+    }
+  });
+});
+
+// POST /webhooks/powerAutomate/todo - inbound from Power Automate (Personal tasks)
+app.post("/webhooks/powerAutomate/todo", async (req, res) => {
+  const raw = req.body || {};
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+
+  const normalized = normalizePersonalTodoTask(raw);
+
+  // Minimal validation
+  const errors = [];
+  if (!normalized.microsoftTaskId) errors.push('id (Microsoft task id) is required');
+  if (!normalized.title) errors.push('title is required');
+  if (errors.length) {
+    logger.warn('TASK_SYNC', `[${requestId}] Validation failed`, { errors });
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid webhook payload',
+      errors,
+      requestId
+    });
+  }
+
+  // Safety check: only act on Personal category (Power Automate should filter too)
+  if (!isPersonalCategory(normalized)) {
+    logger.info('TASK_SYNC', `[${requestId}] Ignored (not Personal category)`, {
+      microsoftTaskId: normalized.microsoftTaskId,
+      categories: normalized.categories
+    });
+    return res.status(202).json({
+      status: 'ignored',
+      reason: 'not_personal_category',
+      requestId
+    });
+  }
+
+  const applePayload = buildAppleEventPayload(normalized);
+  if (!applePayload.startDateTime) {
+    logger.info('TASK_SYNC', `[${requestId}] Ignored (missing due date/time)`, {
+      microsoftTaskId: normalized.microsoftTaskId
+    });
+    return res.status(202).json({
+      status: 'ignored',
+      reason: 'missing_due_date',
+      requestId
+    });
+  }
+
+  const idempotencyKey = buildIdempotencyKey(normalized, applePayload);
+  const force = req.query.force === 'true';
+
+  if (!force) {
+    const alreadyProcessed = await taskSyncStore.has(idempotencyKey);
+    if (alreadyProcessed) {
+      logger.info('TASK_SYNC', `[${requestId}] Duplicate ignored`, {
+        microsoftTaskId: normalized.microsoftTaskId,
+        idempotencyKey
+      });
+      return res.json({
+        status: 'duplicate_ignored',
+        requestId,
+        idempotencyKey
+      });
+    }
+  }
+
+  logger.request(requestId, 'TASK_SYNC', {
+    microsoftTaskId: normalized.microsoftTaskId,
+    title: normalized.title,
+    action: applePayload.action,
+    startDateTime: applePayload.startDateTime
+  });
+
+  const relayResult = await relayToApple({
+    url: process.env.APPLE_EVENT_WEBHOOK_URL,
+    authorization: process.env.APPLE_EVENT_WEBHOOK_AUTHORIZATION,
+    secret: process.env.APPLE_EVENT_WEBHOOK_SECRET,
+    payload: applePayload
+  });
+
+  if (relayResult.sent) {
+    await taskSyncStore.mark(idempotencyKey, {
+      microsoftTaskId: normalized.microsoftTaskId,
+      action: applePayload.action,
+      startDateTime: applePayload.startDateTime
+    });
+
+    logger.response(requestId, 'success', {
+      forwarded: true,
+      idempotencyKey,
+      httpStatus: relayResult.httpStatus
+    });
+
+    return res.json({
+      status: 'relayed',
+      requestId,
+      idempotencyKey,
+      forwarded: true,
+      apple: {
+        httpStatus: relayResult.httpStatus
+      }
+    });
+  }
+
+  logger.warn('TASK_SYNC', `[${requestId}] Relay not sent`, {
+    status: relayResult.status,
+    httpStatus: relayResult.httpStatus
+  });
+
+  return res.status(relayResult.status === 'not_configured' ? 202 : 502).json({
+    status: relayResult.status === 'not_configured' ? 'accepted' : 'error',
+    requestId,
+    forwarded: false,
+    reason: relayResult.status,
+    apple: {
+      httpStatus: relayResult.httpStatus,
+      responseText: relayResult.responseText
+    }
+  });
+});
 
 // promoteTask endpoint - creates task in Microsoft To Do
 app.post("/promoteTask", async (req, res) => {
@@ -413,4 +577,5 @@ app.post("/completeTask", async (req, res) => {
 // Start the server
 app.listen(port, () => {
   logger.info('SERVER', `assistant-365-bridge listening on port ${port}`);
+  logger.info('AI', 'Active AI model configured', aiModelInfo);
 });

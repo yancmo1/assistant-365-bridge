@@ -1,24 +1,23 @@
 /**
- * Initial Authentication Setup
- * 
- * Run this script ONCE to authenticate with Microsoft and get a refresh token.
- * The refresh token will be saved and used for all future API calls.
- * 
+ * Initial Authentication Setup (Persistent)
+ *
+ * Run this script to authenticate with Microsoft Graph via Device Code Flow.
+ * MSAL will persist tokens (including refresh tokens) to a local cache file.
+ *
+ * After this completes, the backend should be able to call Microsoft Graph
+ * without prompting again on restarts (until tokens are revoked/invalidated).
+ *
  * Usage:
  *   node src/auth-setup.js
  */
 
-import * as msal from '@azure/msal-node';
-import { promises as fs } from 'fs';
-import path from 'path';
 import dotenv from 'dotenv';
+import { acquireTokenInteractive, DEFAULT_GRAPH_SCOPES, getCacheFilePath } from './services/persistentAuth.js';
 
 dotenv.config();
 
-const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
-const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
-const AZURE_AUTHORITY = process.env.AZURE_AUTHORITY || 'https://login.microsoftonline.com/';
-const TOKEN_FILE_PATH = process.env.TOKEN_FILE_PATH || './data/tokens.json';
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || process.env.CLIENT_ID;
+const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || process.env.TENANT_ID;
 
 // Validate environment variables
 if (!AZURE_CLIENT_ID || !AZURE_TENANT_ID) {
@@ -32,93 +31,24 @@ if (!AZURE_CLIENT_ID || !AZURE_TENANT_ID) {
   process.exit(1);
 }
 
-// MSAL Configuration
-const msalConfig = {
-  auth: {
-    clientId: AZURE_CLIENT_ID,
-    authority: `${AZURE_AUTHORITY}${AZURE_TENANT_ID}`,
-  }
-};
-
-const pca = new msal.PublicClientApplication(msalConfig);
-
-// Device Code Flow request
-const deviceCodeRequest = {
-  scopes: ['Tasks.ReadWrite', 'User.Read', 'offline_access'],
-  deviceCodeCallback: (response) => {
-    console.log('\n' + '='.repeat(60));
-    console.log('🔐 MICROSOFT AUTHENTICATION REQUIRED');
-    console.log('='.repeat(60));
-    console.log('');
-    console.log('To authorize this application:');
-    console.log('');
-    console.log(`  1. Open this URL in your browser:`);
-    console.log(`     ${response.verificationUri}`);
-    console.log('');
-    console.log(`  2. Enter this code: ${response.userCode}`);
-    console.log('');
-    console.log(`  3. Sign in with your Microsoft 365 account`);
-    console.log('');
-    console.log('Waiting for authentication...');
-    console.log('='.repeat(60) + '\n');
-  }
-};
 
 async function authenticate() {
   try {
     console.log('Starting authentication...\n');
     
-    // Acquire token via Device Code Flow
-    const response = await pca.acquireTokenByDeviceCode(deviceCodeRequest);
+    // Acquire token via Device Code Flow (will persist to MSAL cache on disk)
+    const response = await acquireTokenInteractive(DEFAULT_GRAPH_SCOPES);
     
     console.log('\n✅ Authentication successful!');
     console.log(`   Signed in as: ${response.account?.username || 'Unknown'}\n`);
     
-    // Get the token cache to extract refresh token
-    const cache = pca.getTokenCache();
-    const accounts = await cache.getAllAccounts();
-    
-    if (accounts.length === 0) {
-      throw new Error('No accounts found in token cache');
-    }
-    
-    // Get refresh token from cache
-    const account = accounts[0];
-    const cacheData = cache.serialize();
-    const cacheObj = JSON.parse(cacheData);
-    
-    // Extract refresh token from cache
-    let refreshToken = null;
-    if (cacheObj.RefreshToken) {
-      const refreshTokenKeys = Object.keys(cacheObj.RefreshToken);
-      if (refreshTokenKeys.length > 0) {
-        refreshToken = cacheObj.RefreshToken[refreshTokenKeys[0]].secret;
-      }
-    }
-    
-    if (!refreshToken) {
-      throw new Error('Could not extract refresh token from cache');
-    }
-    
-    // Save the refresh token
-    const dir = path.dirname(TOKEN_FILE_PATH);
-    await fs.mkdir(dir, { recursive: true });
-    
-    const tokenData = {
-      refreshToken: refreshToken,
-      account: account.username,
-      homeAccountId: account.homeAccountId,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(tokenData, null, 2), { mode: 0o600 });
-    
-    console.log(`✅ Refresh token saved to: ${TOKEN_FILE_PATH}`);
+    console.log('✅ Persistent MSAL cache saved to:');
+    console.log(`   ${getCacheFilePath()}`);
     console.log('');
     console.log('🎉 Setup complete!');
     console.log('');
     console.log('You can now use the API to create tasks in Microsoft To Do.');
-    console.log('The refresh token will be used automatically for all future requests.');
+    console.log('The server will use the cached tokens and silently refresh when possible.');
     console.log('');
     console.log('Test it with:');
     console.log('  curl -X POST https://assistant.yancmo.xyz/promoteTask \\');
